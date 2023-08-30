@@ -1,7 +1,6 @@
 from django.shortcuts import render
 from rest_framework.response import Response
-from rest_framework.decorators import api_view
-from .tokens import create_jwt_pair_for_user
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.views import APIView
 from rest_framework.permissions import (
     IsAuthenticated,
@@ -10,9 +9,10 @@ from rest_framework.permissions import (
     IsAdminUser,
 )
 from django.contrib.auth import authenticate
-from django.contrib.auth import authenticate
 from django.shortcuts import render
 from rest_framework import generics, status
+from ..models import Notes
+from .serializers import NotesSerializer
 # Create your views here.
 
 
@@ -26,26 +26,11 @@ def getRoutes(request):
     return Response(routes)
 
 
-
-class LoginView(APIView):
-    permission_classes = []
-
-    def post(self, request):
-        username = request.data.get("username")
-        #print(username)
-        password = request.data.get("password")
-        user = authenticate(request, username=username, password=password)
-
-        if user is not None:
-            tokens = create_jwt_pair_for_user(user) 
-           
-            
-            return Response(
-                {"message": "Login Successful", "tokens": tokens},
-                status=status.HTTP_200_OK
-            )
-
-        else:
-            return Response(
-                {"message": "Invalid email or password"},
-                status=status.HTTP_401_UNAUTHORIZED)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def getNotes(request):
+    user = request.user
+    print(user)
+    notes = user.notes_set.all()
+    serializer = NotesSerializer(notes, many=True)
+    return Response(serializer.data)

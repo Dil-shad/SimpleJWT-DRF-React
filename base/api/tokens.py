@@ -1,54 +1,69 @@
+from rest_framework.exceptions import ValidationError
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.views import TokenRefreshView
 import jwt
-from rest_framework_simplejwt.tokens import RefreshToken
+from datetime import datetime, timedelta
+from rest_framework_simplejwt.serializers import (
+    TokenObtainPairSerializer,
+
+)
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
 from rest_framework.response import Response
 from django.contrib.auth.models import User
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
-from rest_framework.response import Response
+
+# Custom TokenObtainPairSerializer
 
 
-def create_jwt_pair_for_user(user):
-    refresh = RefreshToken.for_user(user)
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
 
-    # Create custom payload with username
-    payload = {
-        "user_id": user.id,
-        "username": user.username,
-        "access_exp": refresh.access_token.payload["exp"],
-        "refresh_exp": refresh.payload["exp"],
-    }
+        # Add custom claims
+        token['username'] = user.username
+        # ...
 
-    # Create access token with custom payload
-    access_token = jwt.encode(payload, 'secret', algorithm="HS256")
+        return token
 
-    tokens = {"access": access_token, "refresh": str(refresh)}
+# Custom TokenObtainPairView
 
-    return tokens
+
+class MyTokenObtainPairView(TokenObtainPairView):
+    serializer_class = MyTokenObtainPairSerializer
+
+
+class CustomTokenRefreshSerializer(TokenRefreshSerializer):
+    def validate(self, attrs):
+        refresh = self.context['request'].data.get(
+            'refresh')  # Get the refresh token value
+
+        try:
+            refresh_token = RefreshToken(refresh)
+            user_id = refresh_token.payload.get('user_id')
+            user = User.objects.get(id=user_id)  # Retrieve the user object
+        except:
+            raise ValidationError('Invalid refresh token')
+
+        access_token = refresh_token.access_token
+
+        # Create custom claims for the access token
+        access_token.payload['username'] = user.username
+
+        # ...
+
+        # Generate refreshed access token and return both tokens
+        new_access_token = AccessToken.for_user(user)
+        new_access_token['username'] = user.username
+        new_refresh_token = RefreshToken.for_user(user)
+
+        return {'access': str(new_access_token), 'refresh': str(new_refresh_token)}
+
+# No changes needed in CustomTokenRefreshView class
 
 
 class CustomTokenRefreshView(TokenRefreshView):
-    def post(self, request, *args, **kwargs):
-        refresh_token = request.data.get("refresh")
-        if not refresh_token:
-            return Response({"error": "Invalid refresh token"}, status=400)
-
-        old_refresh_token = RefreshToken(refresh_token)
-        user_id = old_refresh_token.payload.get('user_id')
-        if user_id is None:
-            return Response({"error": "Invalid refresh token"}, status=400)
-
-        user = User.objects.get(id=user_id)
-        refresh = RefreshToken.for_user(user)
-        payload = {
-            "user_id": user.id,
-            "username": user.username,
-            "access_exp": refresh.access_token.payload["exp"],
-            "refresh_exp": refresh.payload["exp"],
-        }
-        new_access_token = jwt.encode(payload, 'secret', algorithm="HS256")
-        new_refresh_token = RefreshToken.for_user(user)
-
-        return Response({
-            "access": str(new_access_token),
-            "refresh": str(new_refresh_token)
-        })
+    serializer_class = CustomTokenRefreshSerializer
